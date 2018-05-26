@@ -41,7 +41,7 @@ static int block_size = 0;
 static int le(RedisModuleString **array, char *type, int i, int j) {
     size_t len;
     char *t = type;
-    for (int k = 0; k < block_size; ++k) {
+    for (int k = 0; k < block_size; ++k, ++t) {
         if (*t == 'a' || *t == 'A') {
             const char *ai = RedisModule_StringPtrLen(array[i + k], &len);
             const char *aj = RedisModule_StringPtrLen(array[j + k], &len);
@@ -61,10 +61,12 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
             if (RedisModule_StringToLongLong(array[j + k], &aj)
                     == REDISMODULE_ERR)
                 aj = 0;
-            if (*t == 'n')
-                return ai < aj;
-            else    /* 'N' */
-                return ai > aj;
+            if (ai != aj) {
+                if (*t == 'n')
+                    return ai < aj;
+                else    /* 'N' */
+                    return ai > aj;
+            }
         }
     }
     return 1;
