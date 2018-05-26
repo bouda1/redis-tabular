@@ -1,3 +1,36 @@
+/*
+** BSD 3-Clause License
+**
+** Copyright (c) 2018, David Boucher
+** All rights reserved.
+**
+** Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are met:
+**
+** * Redistributions of source code must retain the above copyright notice,
+**   this list of conditions and the following disclaimer.
+**
+** * Redistributions in binary form must reproduce the above copyright notice,
+**   this list of conditions and the following disclaimer in the documentation
+**   and/or other materials provided with the distribution.
+**
+** * Neither the name of the copyright holder nor the names of its
+**   contributors may be used to endorse or promote products derived from
+**   this software without specific prior written permission.
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+** AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+** IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+** ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+** LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+** CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+** SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+** INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+** CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+** ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+** POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include "redismodule.h"
 #include <string.h>
 #include <stdio.h>
@@ -7,21 +40,31 @@ static int block_size = 0;
 
 static int le(RedisModuleString **array, char *type, int i, int j) {
     size_t len;
+    char *t = type;
     for (int k = 0; k < block_size; ++k) {
-        if (type[k] == 'a') {
+        if (*t == 'a' || *t == 'A') {
             const char *ai = RedisModule_StringPtrLen(array[i + k], &len);
             const char *aj = RedisModule_StringPtrLen(array[j + k], &len);
             int cmp = strcmp(ai, aj);
-            if (cmp)
-                return cmp < 0 ? 1 : 0;
+            if (cmp) {
+                if (*t == 'a')
+                    return cmp < 0 ? 1 : 0;
+                else    /* 'A' */
+                    return cmp > 0 ? 1 : 0;
+            }
         }
-        else {  /* The onyl choice here is 'n' */
+        else {  /* The onyl choice here is 'n' or 'N' */
             long long ai, aj;
-            if (RedisModule_StringToLongLong(array[i + k], &ai) == REDISMODULE_ERR)
+            if (RedisModule_StringToLongLong(array[i + k], &ai)
+                    == REDISMODULE_ERR)
                 ai = 0;
-            if (RedisModule_StringToLongLong(array[j + k], &aj) == REDISMODULE_ERR)
+            if (RedisModule_StringToLongLong(array[j + k], &aj)
+                    == REDISMODULE_ERR)
                 aj = 0;
-            return ai < aj;
+            if (*t == 'n')
+                return ai < aj;
+            else    /* 'N' */
+                return ai > aj;
         }
     }
     return 1;
@@ -105,7 +148,7 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
     if (block_size % 2)
         return RedisModule_ReplyWithError(
                 ctx,
-                "Err: For each column you must tell how to sort with ALPHA or NUM");
+                "Err: For each column you must tell how to sort with (REV)ALPHA or (REV)NUM");
     /* We add one to store the field key at the last position of each block */
     block_size = block_size / 2 + 1;
 
@@ -116,12 +159,16 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
         const char *a = RedisModule_StringPtrLen(argv[5 + 2 * i], &len);
         if (strncasecmp(a, "ALPHA", len) == 0)
             type[i] = 'a';
+        else if (strncasecmp(a, "REVALPHA", len) == 0)
+            type[i] = 'A';
         else if (strncasecmp(a, "NUM", len) == 0)
             type[i] = 'n';
+        else if (strncasecmp(a, "REVNUM", len) == 0)
+            type[i] = 'N';
         else
             return RedisModule_ReplyWithError(
                     ctx,
-                    "Err: For each column you must tell how to sort with ALPHA or NUM");
+                    "Err: For each column you must tell how to sort with (REV)ALPHA or (REV)NUM");
     }
 
     RedisModuleCallReply *reply = RedisModule_Call(ctx, "SCARD", "s", set);
