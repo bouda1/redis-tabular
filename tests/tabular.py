@@ -13,12 +13,16 @@ def le(array, t, i, j):
             if array[i] != array[j]:
                 return array[i] > array[j]
         elif c == 'n':
-                return int(array[i]) < int(array[j])
+            a, b = int(array[i]), int(array[j])
+            if a != b:
+                return a < b
         elif c == 'N':
-            if array[i] != array[j]:
-                return int(array[i]) > int(array[j])
+            a, b = int(array[i]), int(array[j])
+            if a != b:
+                return a > b
         i += 1
         j += 1
+    return True
 
 class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
     def testSortWithoutWindowWithoutCol(self):
@@ -78,7 +82,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 1000):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 999),
-                    'name', 'Descr' + str(random.randint(0, 10000)))
+                    'name', 'Descr' + str(random.randint(0, 1000)))
         self.assertOk(self.cmd('tabular.sort', 'test', 0, 1000, 'name', 'alpha', 'value', 'num'))
         tab = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name', 'get', '*->value')
         for i in range(0, len(tab) - 2, 2):

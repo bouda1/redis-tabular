@@ -48,9 +48,9 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
             int cmp = strcmp(ai, aj);
             if (cmp) {
                 if (*t == 'a')
-                    return cmp < 0 ? 1 : 0;
+                    return cmp < 0;
                 else    /* 'A' */
-                    return cmp > 0 ? 1 : 0;
+                    return cmp > 0;
             }
         }
         else {  /* The onyl choice here is 'n' or 'N' */
