@@ -220,9 +220,8 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
             0, size - block_size,
             ldown, lup);
 
-    RedisModule_FreeCallReply(reply);
     reply = RedisModule_Call(ctx,
-            "UNLINK", "c", "service_sort");
+            "UNLINK", "c", "services_sort");
     RedisModule_FreeCallReply(reply);
     long long w = 0;
     for (size_t i = ldown; i <= lup; i += block_size, ++w) {
