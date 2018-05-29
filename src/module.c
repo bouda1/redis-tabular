@@ -62,7 +62,7 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
                     return cmp > 0;
             }
         }
-        else {  /* The onyl choice here is 'n' or 'N' */
+        else if (*t == 'n' || *t == 'N') {  /* The onyl choice here is 'n' or 'N' */
             long long ai, aj;
             if (RedisModule_StringToLongLong(array[i + k], &ai)
                     == REDISMODULE_ERR)
@@ -140,57 +140,119 @@ static int filter(RedisModuleString **array, int size,
     return retval + block_size;
 }
 
-Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size) {
+static void SwapTabular(Tabular *a, Tabular *b) {
+    Tabular tmp;
+    memcpy(&tmp, a, sizeof(Tabular));
+    memcpy(a, b, sizeof(Tabular));
+    memcpy(b, &tmp, sizeof(Tabular));
+}
+
+static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
+                   RedisModuleString **key_store) {
     size_t len;
     int idx = 4;
     Tabular *retval = RedisModule_Alloc((argc - 4) / 2 * sizeof (Tabular));
-    const char *a = RedisModule_StringPtrLen(argv[idx], &len);
     *size = 0;
     Tabular *tmp = retval;
-    if (strncasecmp(a, "SORT", len) == 0) {
-        idx++;
-        while (idx < argc && strncasecmp(a = RedisModule_StringPtrLen(argv[idx], &len), "FILTER", len)) {
-            tmp->field = argv[idx];
-            tmp->search = NULL;
+    while (idx < argc) {
+        const char *a = RedisModule_StringPtrLen(argv[idx], &len);
+        if (strncasecmp(a, "STORE", len) == 0) {
             idx++;
-            a = RedisModule_StringPtrLen(argv[idx], &len);
-            if (strncasecmp(a, "ALPHA", len) == 0)
-                tmp->type = 'a';
-            else if (strncasecmp(a, "REVALPHA", len) == 0)
-                tmp->type = 'A';
-            else if (strncasecmp(a, "NUM", len) == 0)
-                tmp->type = 'n';
-            else if (strncasecmp(a, "REVNUM", len) == 0)
-                tmp->type = 'N';
+            if (idx < argc) {
+                if (key_store)
+                    *key_store = argv[idx];
+                idx++;
+            }
             else {
                 RedisModule_Free(retval);
                 return NULL;
             }
+        }
+        else if (strncasecmp(a, "SORT", len) == 0) {
+            long long num;
+            int row = 0;
             idx++;
-            ++tmp;
-            (*size)++;
+            if (idx < argc) {
+                if (RedisModule_StringToLongLong(argv[idx], &num) == REDISMODULE_ERR) {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
+            }
+            idx++;
+            while (row < num && idx < argc) {
+                tmp = retval;
+                int i = 0;
+                while (i < *size && RedisModule_StringCompare(argv[idx], tmp->field)) {
+                    i++;
+                    ++tmp;
+                }
+                if (i == *size) {
+                    (*size)++;
+                    tmp->field = argv[idx];
+                    tmp->search = NULL;
+                }
+                /* In the case of SORT coming after FILTER, the sort order can
+                 * be perturbed by the filtered fields. Here we force the order
+                 * to follow the one wanted in SORT */
+                if (i > row) {
+                    SwapTabular(&retval[row], tmp);
+                    tmp = &retval[row];
+                }
+                idx++;
+                if (idx >= argc) {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
+                a = RedisModule_StringPtrLen(argv[idx], &len);
+                if (strncasecmp(a, "ALPHA", len) == 0)
+                    tmp->type = 'a';
+                else if (strncasecmp(a, "REVALPHA", len) == 0)
+                    tmp->type = 'A';
+                else if (strncasecmp(a, "NUM", len) == 0)
+                    tmp->type = 'n';
+                else if (strncasecmp(a, "REVNUM", len) == 0)
+                    tmp->type = 'N';
+                else {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
+                idx++;
+                row++;
+            }
+        }
+        else if (strncasecmp(a, "FILTER", len) == 0) {
+            idx++;
+            long long num;
+            if (RedisModule_StringToLongLong(argv[idx], &num) == REDISMODULE_ERR) {
+                RedisModule_Free(retval);
+                return NULL;
+            }
+            idx++;
+            while (num > 0 && idx < argc) {
+                tmp = retval;
+                int i = 0;
+                while (i < *size && RedisModule_StringCompare(argv[idx], tmp->field)) {
+                    i++;
+                    ++tmp;
+                }
+                if (i == *size) {
+                    (*size)++;
+                    tmp->field = argv[idx];
+                    tmp->type = 0;
+                }
+                idx++;
+                a = RedisModule_StringPtrLen(argv[idx], &len);
+                tmp->search = a;
+                idx++;
+                num--;
+            }
+        }
+        else {
+            RedisModule_Free(retval);
+            return NULL;
         }
     }
 
-    if (strncasecmp(a, "FILTER", len) == 0) {
-        idx++;
-        while (idx < argc) {
-            tmp = retval;
-            int i = 0;
-            while (i < *size && RedisModule_StringCompare(argv[idx], tmp->field)) {
-                i++;
-                ++tmp;
-            }
-            if (i == *size) {
-                (*size)++;
-                tmp->field = argv[idx];
-            }
-            idx++;
-            a = RedisModule_StringPtrLen(argv[idx], &len);
-            tmp->search = a;
-            idx++;
-        }
-    }
     return retval;
 }
 
@@ -212,7 +274,7 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
     long long key_count;
     long long first, last;
 
-    if (argc <= 5) {
+    if (argc < 4) {
         return RedisModule_WrongArity(ctx);
     }
 
@@ -231,11 +293,12 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
         last = tmp;
     }
 
-    Tabular *header = ParseArgv(argv, argc, &block_size);
+    RedisModuleString *key_store = NULL;
+    Tabular *header = ParseArgv(argv, argc, &block_size, &key_store);
     if (!header) {
         return RedisModule_ReplyWithError(
                 ctx,
-                "Err: The syntax is SORT {field {ALPHA|NUM|REVALPHA|REVNUM}}* FILTER {field 'expr'}*");
+                "Err: The syntax is TABULAR.GET key ldown lup {STORE key}? {SORT {field {ALPHA|NUM|REVALPHA|REVNUM}}*}? {FILTER {field 'expr'}*}?");
     }
     Tabular *lst;
 
@@ -252,70 +315,85 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
     int size = RedisModule_CallReplyInteger(reply) * block_size;
     RedisModule_FreeCallReply(reply);
 
-    RedisModuleString **array = RedisModule_Alloc(
-            size * sizeof(char *));
-
+    RedisModuleString **array = NULL;
     char type[block_size];
     type[block_size - 1] = 'a';
-    size_t i, j;
 
-    reply = RedisModule_Call(ctx, "SMEMBERS", "s", set);
-    for (i = block_size - 1, j = 0; i < size; i += block_size, ++j) {
-        size_t len;
-        const char *str = RedisModule_CallReplyStringPtr(
-                RedisModule_CallReplyArrayElement(reply, j), &len);
-        array[i] = RedisModule_CreateString(ctx, str, len);
-    }
-    RedisModule_FreeCallReply(reply);
+    if (size > 0) {
+        array = RedisModule_Alloc(size * sizeof(char *));
 
-    for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
-        type[i] = lst->type;
+        size_t i, j;
 
-
-        for (j = 0; j < size; j += block_size) {
+        reply = RedisModule_Call(ctx, "SMEMBERS", "s", set);
+        for (i = block_size - 1, j = 0; i < size; i += block_size, ++j) {
             size_t len;
-            reply = RedisModule_Call(
-                    ctx, "HGET", "ss",
-                    array[j + block_size - 1], lst->field);
-            const char *str = RedisModule_CallReplyStringPtr(reply, &len);
-            array[j + i] = RedisModule_CreateString(ctx, str, len);
-            RedisModule_FreeCallReply(reply);
+            const char *str = RedisModule_CallReplyStringPtr(
+                    RedisModule_CallReplyArrayElement(reply, j), &len);
+            array[i] = RedisModule_CreateString(ctx, str, len);
         }
+        RedisModule_FreeCallReply(reply);
+
+        for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
+            type[i] = lst->type;
+
+
+            for (j = 0; j < size; j += block_size) {
+                size_t len;
+                reply = RedisModule_Call(
+                        ctx, "HGET", "ss",
+                        array[j + block_size - 1], lst->field);
+                const char *str = RedisModule_CallReplyStringPtr(reply, &len);
+                array[j + i] = RedisModule_CreateString(ctx, str, len);
+                RedisModule_FreeCallReply(reply);
+            }
+        }
+
+        size = filter(array, size, header, block_size);
     }
 
-    size = filter(array, size, header, block_size);
-    size_t ldown = first * block_size;
-    size_t lup = last * block_size;
+    int ldown = first * block_size;
+    int lup = last * block_size;
     if (ldown >= size)
-        ldown = size - block_size;
+        ldown = size > 0 ? size - block_size : 0;
     if (lup < ldown)
         lup = ldown;
     if (lup >= size)
-        lup = size - block_size;
-
+        lup = size > 0 ? size - block_size : -1;
 
     quick_sort(
             array, type,
             0, size - block_size,
             ldown, lup);
 
-    reply = RedisModule_Call(ctx,
-            "UNLINK", "c", "services_sort");
-    RedisModule_FreeCallReply(reply);
-    long long w = 0;
-    for (size_t i = ldown; i <= lup; i += block_size, ++w) {
-        reply = RedisModule_Call(ctx, "ZADD", "cls",
-                "services_sort", w, array[i + block_size - 1]);
+    if (key_store == NULL) {
+        if (size > 0) {
+            RedisModule_ReplyWithArray(ctx, size / block_size);
+            for (size_t i = ldown; i <= lup; i += block_size)
+                RedisModule_ReplyWithString(ctx, array[i + block_size - 1]);
+        }
+        else
+            RedisModule_ReplyWithArray(ctx, 0);
+    }
+    else {
+        reply = RedisModule_Call(ctx,
+                "UNLINK", "s", key_store);
         RedisModule_FreeCallReply(reply);
+        if (size > 0) {
+            long long w = 0;
+            for (size_t i = ldown; i <= lup; i += block_size, ++w) {
+                reply = RedisModule_Call(ctx, "ZADD", "sls",
+                        key_store, w, array[i + block_size - 1]);
+                RedisModule_FreeCallReply(reply);
+            }
+        }
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
 
     for (size_t i = 0; i < size; ++i) {
         RedisModule_FreeString(ctx, array[i]);
     }
     RedisModule_Free(array);
-
     RedisModule_Free(header);
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
