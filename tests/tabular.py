@@ -156,7 +156,8 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 30):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        tab = self.cmd('tabular.get', 'test', 1, 1030, 'sort', 1, 'name', 'alpha')
+        tab = self.cmd('tabular.get', 'test', 1, 1030,
+                       'sort', 1, 'name', 'alpha')
         self.assertTrue(len(tab) == 28)
 
 if __name__ == '__main__':

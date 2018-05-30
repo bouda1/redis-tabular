@@ -30,24 +30,37 @@
 ** ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 ** POSSIBILITY OF SUCH DAMAGE.
 */
-
 #include <fnmatch.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "redismodule.h"
 
-struct _Tabular {
+struct _Header {
     RedisModuleString *field;
     char type;
     const char *search;
 };
 
-typedef struct _Tabular Tabular;
+typedef struct _Header Header;
 
 static int block_size = 0;
 
-static int le(RedisModuleString **array, char *type, int i, int j) {
+/**
+ *  Le is a function returning 1 if array[i] <= array[j] following type
+ *
+ * @param array An array of RedisModuleStrings
+ * @param type A char giving values types,
+ *          * 'a' for strings ordered from the lesser to the greater
+ *          * 'A' for strings ordered from the greater to the lesser
+ *          * 'n' for numbers ordered from the lesser to the greater
+ *          * 'N' for numbers ordered from the greater to the lesser
+ * @param i * Index of the first element to compare
+ * @param j * Index of the second element to compare
+ *
+ * @return 1 if array[i] <= array[j], 0 otherwise.
+ */
+static int Le(RedisModuleString **array, char *type, int i, int j) {
     size_t len;
     char *t = type;
     RedisModuleString *tmp;
@@ -63,7 +76,7 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
                     return cmp > 0;
             }
         }
-        else if (*t == 'n' || *t == 'N') {  /* The onyl choice here is 'n' or 'N' */
+        else if (*t == 'n' || *t == 'N') {
             long long ai, aj;
             tmp = array[i + k];
             if (!tmp
@@ -85,7 +98,14 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
     return 1;
 }
 
-static void swap(RedisModuleString **array, int i, int j) {
+/**
+ *  Swap Echanges two elements of array
+ *
+ * @param array The array to work on.
+ * @param i The index of the first element
+ * @param j The index of the second element
+ */
+static void Swap(RedisModuleString **array, int i, int j) {
     for (int k = 0; k < block_size; ++k) {
         RedisModuleString *tmp = array[i + k];
         array[i + k] = array[j + k];
@@ -93,35 +113,74 @@ static void swap(RedisModuleString **array, int i, int j) {
     }
 }
 
-static int partition(RedisModuleString **array, char *type,
+/**
+ *  Partition The function realizes the most important part of the quick sort
+ *  algorithm.
+ *
+ * @param array The array to sort. Columns are flat, that is to say for an array
+ *              containing two columns name and value, array is as follows
+ *              array[0] = a name, array[1] = a value, array[2] = a name, etc...
+ * @param type An array of types for each column of the array
+ * @param begin The lower bound of the window wanted by the user
+ * @param last The upper bound of the window wanted by the user
+ *
+ * @return The pivot index used by the algorithm
+ */
+static int Partition(RedisModuleString **array, char *type,
                      int begin, int last) {
     int store_idx = begin;
     for (int i = begin; i < last; i += block_size) {
-        if (le(array, type, i, last)) {
-            swap(array, i, store_idx);
+        if (Le(array, type, i, last)) {
+            Swap(array, i, store_idx);
             store_idx += block_size;
         }
     }
-    swap(array, store_idx, last);
+    Swap(array, store_idx, last);
     return store_idx;
 }
 
-static void quick_sort(RedisModuleString **array, char *type,
+/**
+ *  QuickSort The main function of the QuickSort algorithm. This
+ *  implementation contains an optimization, so that the sort is not totally
+ *  done on data ouside of the window scope.
+ *
+ * @param array The array to sort
+ * @param type An array of the columns types.
+ * @param begin The lower bound of elements to sort
+ * @param last The upper bound of elements to sort
+ * @param ldown The lower bound of the window wanted by the user
+ * @param lup The upper bound of the window wanted by the user
+ *
+ * The order is total only from ldown to lup.
+ */
+static void QuickSort(RedisModuleString **array, char *type,
                        int begin, int last, int ldown, int lup) {
     int pivot_idx = 0;
     if (begin < last) {
-        pivot_idx = partition(array, type, begin, last);
+        pivot_idx = Partition(array, type, begin, last);
         if (pivot_idx - block_size >= ldown) {
-            quick_sort(array, type, begin, pivot_idx - block_size, ldown, lup);
+            QuickSort(array, type, begin, pivot_idx - block_size, ldown, lup);
         }
         if (pivot_idx + block_size <= lup) {
-            quick_sort(array, type, pivot_idx + block_size, last, ldown, lup);
+            QuickSort(array, type, pivot_idx + block_size, last, ldown, lup);
         }
     }
 }
 
-static int filter(RedisModuleString **array, int size,
-                   Tabular *header, int block_size) {
+/**
+ *  Filter A multicolumn string filter function
+ *
+ * @param array The array to apply filter on.
+ * @param size The array size
+ * @param header Informations on each column, it contains the filter patterns
+ * @param block_size The number of columns.
+ *
+ * @return The new size of the array. The real size of array is not modified
+ *         to avoid reallocations, with this information, we know that the new
+ *         array must be read in the range [0, return value).
+ */
+static int Filter(RedisModuleString **array, int size,
+                   Header *header, int block_size) {
     int retval = size - block_size;
     int i, j;
     for (j = 0; j < block_size - 1; ++j) {
@@ -144,20 +203,37 @@ static int filter(RedisModuleString **array, int size,
     return retval + block_size;
 }
 
-static void SwapTabular(Tabular *a, Tabular *b) {
-    Tabular tmp;
-    memcpy(&tmp, a, sizeof(Tabular));
-    memcpy(a, b, sizeof(Tabular));
-    memcpy(b, &tmp, sizeof(Tabular));
+/**
+ *  SwapHeaders A function to exchange columns in the header
+ *
+ * @param a a header
+ * @param b another header
+ */
+static void SwapHeaders(Header *a, Header *b) {
+    Header tmp;
+    memcpy(&tmp, a, sizeof(Header));
+    memcpy(a, b, sizeof(Header));
+    memcpy(b, &tmp, sizeof(Header));
 }
 
-static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
+/**
+ *  ParseArgv A function to parse the argv array from the fourth element.
+ *
+ * @param argv The array to parse
+ * @param argc The size of argv
+ * @param[out] size The resulting block size
+ * @param[out] key_store If the keyword 'STORE' is used, key_store will contain
+ *                          the key where the result will be stored.
+ *
+ * @return The array header
+ */
+static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
                    RedisModuleString **key_store) {
     size_t len;
     int idx = 4;
-    Tabular *retval = RedisModule_Alloc((argc - 4) / 2 * sizeof (Tabular));
+    Header *retval = RedisModule_Alloc((argc - 4) / 2 * sizeof (Header));
     *size = 0;
-    Tabular *tmp = retval;
+    Header *tmp = retval;
     while (idx < argc) {
         const char *a = RedisModule_StringPtrLen(argv[idx], &len);
         if (strncasecmp(a, "STORE", len) == 0) {
@@ -203,7 +279,7 @@ static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
                  * be perturbed by the filtered fields. Here we force the order
                  * to follow the one wanted in SORT */
                 if (i > row) {
-                    SwapTabular(&retval[row], tmp);
+                    SwapHeaders(&retval[row], tmp);
                     tmp = &retval[row];
                 }
                 idx++;
@@ -315,13 +391,13 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     }
 
     RedisModuleString *key_store = NULL;
-    Tabular *header = ParseArgv(argv, argc, &block_size, &key_store);
+    Header *header = ParseArgv(argv, argc, &block_size, &key_store);
     if (!header) {
         return RedisModule_ReplyWithError(
                 ctx,
                 "Err: The syntax is TABULAR.GET key ldown lup {STORE key}? {SORT {field {ALPHA|NUM|REVALPHA|REVNUM}}*}? {FILTER {field 'expr'}*}?");
     }
-    Tabular *lst;
+    Header *lst;
 
     /* A block contains each column asked in the command line + the field
      * key */
@@ -380,10 +456,10 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
             }
         }
 
-        size = filter(array, size, header, block_size);
+        size = Filter(array, size, header, block_size);
     }
 
-    quick_sort(
+    QuickSort(
             array, type,
             0, size - block_size,
             ldown, lup);
