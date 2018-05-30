@@ -50,6 +50,7 @@ static int block_size = 0;
 static int le(RedisModuleString **array, char *type, int i, int j) {
     size_t len;
     char *t = type;
+    RedisModuleString *tmp;
     for (int k = 0; k < block_size; ++k, ++t) {
         if (*t == 'a' || *t == 'A') {
             const char *ai = RedisModule_StringPtrLen(array[i + k], &len);
@@ -64,11 +65,14 @@ static int le(RedisModuleString **array, char *type, int i, int j) {
         }
         else if (*t == 'n' || *t == 'N') {  /* The onyl choice here is 'n' or 'N' */
             long long ai, aj;
-            if (RedisModule_StringToLongLong(array[i + k], &ai)
-                    == REDISMODULE_ERR)
+            tmp = array[i + k];
+            if (!tmp
+                || RedisModule_StringToLongLong(tmp, &ai) == REDISMODULE_ERR)
                 ai = 0;
-            if (RedisModule_StringToLongLong(array[j + k], &aj)
-                    == REDISMODULE_ERR)
+
+            tmp = array[j + k];
+            if (!tmp
+                || RedisModule_StringToLongLong(tmp, &aj) == REDISMODULE_ERR)
                 aj = 0;
             if (ai != aj) {
                 if (*t == 'n')
@@ -178,6 +182,10 @@ static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
                     return NULL;
                 }
             }
+            else {
+                RedisModule_Free(retval);
+                return NULL;
+            }
             idx++;
             while (row < num && idx < argc) {
                 tmp = retval;
@@ -219,11 +227,16 @@ static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
                 idx++;
                 row++;
             }
+            if (row < num) {
+                RedisModule_Free(retval);
+                return NULL;
+            }
         }
         else if (strncasecmp(a, "FILTER", len) == 0) {
-            idx++;
             long long num;
-            if (RedisModule_StringToLongLong(argv[idx], &num) == REDISMODULE_ERR) {
+            idx++;
+            if (idx >= argc
+                || RedisModule_StringToLongLong(argv[idx], &num) == REDISMODULE_ERR) {
                 RedisModule_Free(retval);
                 return NULL;
             }
@@ -241,10 +254,18 @@ static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
                     tmp->type = 0;
                 }
                 idx++;
+                if (idx >= argc) {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
                 a = RedisModule_StringPtrLen(argv[idx], &len);
                 tmp->search = a;
                 idx++;
                 num--;
+            }
+            if (num > 0) {
+                RedisModule_Free(retval);
+                return NULL;
             }
         }
         else {
@@ -264,13 +285,13 @@ static Tabular *ParseArgv(RedisModuleString **argv, int argc, int *size,
  * @param ctx The Redis context
  * @param argv An array of arguments
  * @param argc The arguments count with the command. That is to say
- *             "tabular.sort 2" gives argc=2
+ *             "tabular.get 2" gives argc=2
  *
  * @return REDISMODULE_ERR or REDISMODULE_OK
  */
-int TabularSort_RedisCommand(RedisModuleCtx *ctx,
-                             RedisModuleString **argv,
-                             int argc) {
+static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
+                                   RedisModuleString **argv,
+                                   int argc) {
     long long key_count;
     long long first, last;
 
@@ -319,6 +340,17 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
     char type[block_size];
     type[block_size - 1] = 'a';
 
+    int ldown = first * block_size;
+    int lup = last * block_size;
+
+    /* The window is outside data. We force size to 0. */
+    if (ldown >= size)
+        size = 0;
+    if (lup >= size)
+        lup = size - block_size;
+    if (lup < ldown)
+        lup = ldown;
+
     if (size > 0) {
         array = RedisModule_Alloc(size * sizeof(char *));
 
@@ -343,22 +375,13 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
                         ctx, "HGET", "ss",
                         array[j + block_size - 1], lst->field);
                 const char *str = RedisModule_CallReplyStringPtr(reply, &len);
-                array[j + i] = RedisModule_CreateString(ctx, str, len);
+                array[j + i] = str ?RedisModule_CreateString(ctx, str, len) : NULL;
                 RedisModule_FreeCallReply(reply);
             }
         }
 
         size = filter(array, size, header, block_size);
     }
-
-    int ldown = first * block_size;
-    int lup = last * block_size;
-    if (ldown >= size)
-        ldown = size > 0 ? size - block_size : 0;
-    if (lup < ldown)
-        lup = ldown;
-    if (lup >= size)
-        lup = size > 0 ? size - block_size : -1;
 
     quick_sort(
             array, type,
@@ -367,7 +390,8 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
 
     if (key_store == NULL) {
         if (size > 0) {
-            RedisModule_ReplyWithArray(ctx, size / block_size);
+            int s = (lup - ldown) / block_size + 1;
+            RedisModule_ReplyWithArray(ctx, s);
             for (size_t i = ldown; i <= lup; i += block_size)
                 RedisModule_ReplyWithString(ctx, array[i + block_size - 1]);
         }
@@ -390,7 +414,8 @@ int TabularSort_RedisCommand(RedisModuleCtx *ctx,
     }
 
     for (size_t i = 0; i < size; ++i) {
-        RedisModule_FreeString(ctx, array[i]);
+        if (array[i])
+            RedisModule_FreeString(ctx, array[i]);
     }
     RedisModule_Free(array);
     RedisModule_Free(header);
@@ -402,7 +427,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "tabular.get",
-        TabularSort_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        TabularGet_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
