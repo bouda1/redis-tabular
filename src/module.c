@@ -191,8 +191,7 @@ static int Filter(RedisModuleString **array, int size,
             while (i <= retval) {
                 const char *txt = RedisModule_StringPtrLen(array[i + j], &len);
                 if (fnmatch(pattern, txt, FNM_NOESCAPE | FNM_CASEFOLD | FNM_EXTMATCH)) {
-                    for (int k = 0; k < block_size; ++k)
-                        array[i + k] = array[retval + k];
+                    Swap(array, i, retval);
                     retval -= block_size;
                 }
                 else
@@ -410,6 +409,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 ctx,
                 "Err: Unable to get the set card");
     int size = RedisModule_CallReplyInteger(reply) * block_size;
+    int orig_size = 0;
     RedisModule_FreeCallReply(reply);
 
     RedisModuleString **array = NULL;
@@ -417,15 +417,11 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     type[block_size - 1] = 'a';
 
     int ldown = first * block_size;
-    int lup = last * block_size;
 
     /* The window is outside data. We force size to 0. */
+    /* We already have to compute size because of its need for the filter. */
     if (ldown >= size)
         size = 0;
-    if (lup >= size)
-        lup = size - block_size;
-    if (lup < ldown)
-        lup = ldown;
 
     if (size > 0) {
         array = RedisModule_Alloc(size * sizeof(char *));
@@ -455,9 +451,19 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 RedisModule_FreeCallReply(reply);
             }
         }
-
+        orig_size = size;
         size = Filter(array, size, header, block_size);
     }
+
+    /* The window is outside data. We force size to 0.
+     * After the filter, size may have changed */
+    if (ldown >= size)
+        size = 0;
+    int lup = last * block_size;
+    if (lup >= size)
+        lup = size - block_size;
+    if (lup < ldown)
+        lup = ldown;
 
     QuickSort(
             array, type,
@@ -489,7 +495,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
 
-    for (size_t i = 0; i < size; ++i) {
+    for (size_t i = 0; i < orig_size; ++i) {
         if (array[i])
             RedisModule_FreeString(ctx, array[i]);
     }
