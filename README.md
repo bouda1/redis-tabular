@@ -48,16 +48,14 @@ TABULAR.GET test 0 10 SORT 2 descr ALPHA value NUM
 
 The 0 10 range is to tell we want rows from index 0 to index 10.
 
-Each column can be sort alphabetically or numerically (also in reverse order), for that purpose we have keywords `ALPHA`, `NUM`, `REVALPHA` and `REVNUM`.
+Each column can be sorted alphabetically or numerically (also in reverse order), for that purpose we have keywords `ALPHA`, `NUM`, `REVALPHA` and `REVNUM`.
 
 The `SORT` word needs also how many columns the sort works on, in the example, it works on 2 columns.
 
-The result is an array containing the total count of rows followed by the content of the set reordered.
+The result is an array containing the total count of rows (not just the window range) followed by the sorted rows contained in the window.
 
-It is also possible to store this result in an ordered set. For that, we have the word `STORE` followed by a key name. And the full size of the set is stored in
-the key made of the store key name followed by `:size`. This size is usually
-greater than the ordered set one because it does not take in count the window
-range.
+It is also possible to store this result in an ordered set. For that, we have the word `STORE` followed by a key name. And the full size is stored in
+the key made of the store key name followed by `:size`.
 
 For our previous example, we can then execute:
 ```
@@ -81,6 +79,16 @@ OK
 6) "s2"
 7) "s1"
 > GET sorted:size
+"7"
+> TABULAR.GET test 3 6 SORT 1 value NUM
+1) (integer) 7
+2) "s4"
+3) "s3"
+4) "s2"
+5) "s1"
+> TABULAR.GET test 3 6 SORT 1 value NUM STORE tmp
+OK
+> GET tmp:size
 "7"
 ```
 
