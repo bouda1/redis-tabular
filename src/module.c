@@ -367,7 +367,7 @@ static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
 static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                                    RedisModuleString **argv,
                                    int argc) {
-    long long key_count;
+    long long key_count = 0;
     long long first, last;
 
     if (argc < 4) {
@@ -391,6 +391,10 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
 
     RedisModuleString *key_store = NULL;
     Header *header = ParseArgv(argv, argc, &block_size, &key_store);
+    size_t len;
+    const char *ptr = RedisModule_StringPtrLen(key_store, &len);
+    RedisModuleString *keystore_size_str = RedisModule_CreateStringPrintf(
+            ctx, "%s:size", ptr);
     if (!header) {
         return RedisModule_ReplyWithError(
                 ctx,
@@ -455,6 +459,8 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         size = Filter(array, size, header, block_size);
     }
 
+    key_count = size / block_size;
+
     /* The window is outside data. We force size to 0.
      * After the filter, size may have changed */
     if (ldown >= size)
@@ -472,13 +478,16 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
 
     if (key_store == NULL) {
         if (size > 0) {
-            int s = (lup - ldown) / block_size + 1;
+            int s = (lup - ldown) / block_size + 2;
             RedisModule_ReplyWithArray(ctx, s);
+            RedisModule_ReplyWithLongLong(ctx, key_count);
             for (size_t i = ldown; i <= lup; i += block_size)
                 RedisModule_ReplyWithString(ctx, array[i + block_size - 1]);
         }
-        else
-            RedisModule_ReplyWithArray(ctx, 0);
+        else {
+            RedisModule_ReplyWithArray(ctx, 1);
+            RedisModule_ReplyWithLongLong(ctx, key_count);
+        }
     }
     else {
         reply = RedisModule_Call(ctx,
@@ -490,6 +499,8 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 reply = RedisModule_Call(ctx, "ZADD", "sls",
                         key_store, w, array[i + block_size - 1]);
                 RedisModule_FreeCallReply(reply);
+                RedisModule_Call(ctx, "SET", "sl",
+                        keystore_size_str, (lup - ldown) / block_size + 1);
             }
         }
         RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -499,6 +510,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         if (array[i])
             RedisModule_FreeString(ctx, array[i]);
     }
+    RedisModule_FreeString(ctx, keystore_size_str);
     RedisModule_Free(array);
     RedisModule_Free(header);
     return REDISMODULE_OK;

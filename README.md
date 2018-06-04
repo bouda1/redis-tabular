@@ -46,29 +46,33 @@ Now we want to sort those data following descr and in case of equality, followin
 TABULAR.GET test 0 10 SORT 2 descr ALPHA value NUM
 ```
 
-The 0 10 range is to tell we want rows in that range.
+The 0 10 range is to tell we want rows from index 0 to index 10.
 
 Each column can be sort alphabetically or numerically (also in reverse order), for that purpose we have keywords `ALPHA`, `NUM`, `REVALPHA` and `REVNUM`.
 
 The `SORT` word needs also how many columns the sort works on, in the example, it works on 2 columns.
 
-The result is the content of the set reordered following the rules given by the user.
+The result is an array containing the total count of rows followed by the content of the set reordered.
 
-By default this new list is directly returned, it is also possible to store it in an ordered set. For that, we have the word `STORE` followed by a key name.
+It is also possible to store this result in an ordered set. For that, we have the word `STORE` followed by a key name. And the full size of the set is stored in
+the key made of the store key name followed by `:size`. This size is usually
+greater than the ordered set one because it does not take in count the window
+range.
 
 For our previous example, we can then execute:
 ```
 > TABULAR.GET test 0 10 SORT 1 value NUM
-1) "s7"
-2) "s6"
-3) "s5"
-4) "s4"
-5) "s3"
-6) "s2"
-7) "s1"
+1) (integer) 7
+2) "s7"
+3) "s6"
+4) "s5"
+5) "s4"
+6) "s3"
+7) "s2"
+8) "s1"
 > tabular.get test 0 10 sort 1 value num store sorted
 OK
->zrange sorted 0 10
+> zrange sorted 0 10
 1) "s7"
 2) "s6"
 3) "s5"
@@ -76,6 +80,8 @@ OK
 5) "s3"
 6) "s2"
 7) "s1"
+> GET sorted:size
+"7"
 ```
 
 There is also a possibility to filter rows with *wildcards*. For example, with our example, we can keep only lines matching a pattern:
