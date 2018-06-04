@@ -451,7 +451,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                         ctx, "HGET", "ss",
                         array[j + block_size - 1], lst->field);
                 const char *str = RedisModule_CallReplyStringPtr(reply, &len);
-                array[j + i] = str ?RedisModule_CreateString(ctx, str, len) : NULL;
+                array[j + i] = str ? RedisModule_CreateString(ctx, str, len) : NULL;
                 RedisModule_FreeCallReply(reply);
             }
         }
@@ -499,10 +499,10 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 reply = RedisModule_Call(ctx, "ZADD", "sls",
                         key_store, w, array[i + block_size - 1]);
                 RedisModule_FreeCallReply(reply);
-                RedisModule_Call(ctx, "SET", "sl",
-                        keystore_size_str, (lup - ldown) / block_size + 1);
             }
         }
+        reply = RedisModule_Call(ctx, "SET", "sl",
+                keystore_size_str, key_count);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
 

@@ -147,6 +147,17 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
             self.assertEqual(tab1[i], tab2[i])
             self.assertEqual(tab2[i], tab3[i])
 
+    def testCountOnWindow(self):
+        for i in range(1, 151):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
+        self.cmd('tabular.get', 'test', 1, 1030, 'sort', 1, 'name', 'num', 'store', 'foo')
+        tab1 = self.cmd('get', 'foo:size')
+
+        self.cmd('tabular.get', 'test', 100, 130, 'sort', 1, 'name', 'num', 'store', 'bar')
+        tab2 = self.cmd('get', 'bar:size')
+        self.assertEqual(tab1, tab2)
+
     def testSortWithBadNum(self):
         for i in range(1, 30):
             self.cmd('SADD', 'test', 's' + str(i))
