@@ -229,8 +229,8 @@ static void SwapHeaders(Header *a, Header *b) {
 static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
                    RedisModuleString **key_store) {
     size_t len;
-    int idx = 4;
-    Header *retval = RedisModule_Alloc((argc - 4) / 2 * sizeof (Header));
+    int idx = 0;
+    Header *retval = RedisModule_Alloc(argc / 2 * sizeof (Header));
     *size = 0;
     Header *tmp = retval;
     while (idx < argc) {
@@ -353,7 +353,7 @@ static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
 }
 
 /**
- *  An implementation of a sort function for the centreon web interface.
+ *  An implementation of a sort function
  *  The first argument is a Redis set to sort
  *  Following arguments are fields to sort, each one followed by ASC or DESC.
  *
@@ -390,11 +390,14 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     }
 
     RedisModuleString *key_store = NULL;
-    Header *header = ParseArgv(argv, argc, &block_size, &key_store);
-    size_t len;
-    const char *ptr = RedisModule_StringPtrLen(key_store, &len);
-    RedisModuleString *keystore_size_str = RedisModule_CreateStringPrintf(
-            ctx, "%s:size", ptr);
+    Header *header = ParseArgv(argv + 4, argc - 4, &block_size, &key_store);
+    RedisModuleString *keystore_size_str = NULL;
+    if (key_store) {
+        size_t len;
+        const char *ptr = RedisModule_StringPtrLen(key_store, &len);
+        keystore_size_str = RedisModule_CreateStringPrintf(
+                ctx, "%s:size", ptr);
+    }
     if (!header) {
         return RedisModule_ReplyWithError(
                 ctx,
@@ -441,19 +444,17 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         }
         RedisModule_FreeCallReply(reply);
 
-        for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
-            type[i] = lst->type;
-
-
-            for (j = 0; j < size; j += block_size) {
+        for (j = 0; j < size; j += block_size) {
+            RedisModuleKey *key = RedisModule_OpenKey(
+                    ctx, array[j + block_size - 1], REDISMODULE_READ);
+            for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
+                type[i] = lst->type;
                 size_t len;
-                reply = RedisModule_Call(
-                        ctx, "HGET", "ss",
-                        array[j + block_size - 1], lst->field);
-                const char *str = RedisModule_CallReplyStringPtr(reply, &len);
-                array[j + i] = str ? RedisModule_CreateString(ctx, str, len) : NULL;
-                RedisModule_FreeCallReply(reply);
+                RedisModuleString *value;
+                RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
+                array[j + i] = value;
             }
+            RedisModule_CloseKey(key);
         }
         orig_size = size;
         size = Filter(array, size, header, block_size);
@@ -490,27 +491,27 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         }
     }
     else {
-        reply = RedisModule_Call(ctx,
-                "UNLINK", "s", key_store);
-        RedisModule_FreeCallReply(reply);
+        RedisModuleKey *key = RedisModule_OpenKey(
+                ctx, key_store, REDISMODULE_WRITE);
+        RedisModule_DeleteKey(key);
         if (size > 0) {
-            long long w = 0;
+            double w = 0;
             for (size_t i = ldown; i <= lup; i += block_size, ++w) {
-                reply = RedisModule_Call(ctx, "ZADD", "sls",
-                        key_store, w, array[i + block_size - 1]);
-                RedisModule_FreeCallReply(reply);
+                RedisModule_ZsetAdd(key, w, array[i + block_size - 1], NULL);
             }
+            RedisModule_CloseKey(key);
         }
         reply = RedisModule_Call(ctx, "SET", "sl",
                 keystore_size_str, key_count);
+        RedisModule_FreeCallReply(reply);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
+        RedisModule_FreeString(ctx, keystore_size_str);
     }
 
     for (size_t i = 0; i < orig_size; ++i) {
         if (array[i])
             RedisModule_FreeString(ctx, array[i]);
     }
-    RedisModule_FreeString(ctx, keystore_size_str);
     RedisModule_Free(array);
     RedisModule_Free(header);
     return REDISMODULE_OK;
