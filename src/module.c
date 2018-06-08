@@ -30,19 +30,11 @@
 ** ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 ** POSSIBILITY OF SUCH DAMAGE.
 */
-#include <fnmatch.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "redismodule.h"
-
-struct _Header {
-    RedisModuleString *field;
-    char type;
-    const char *search;
-};
-
-typedef struct _Header Header;
+#include "tabular.h"
+#include "filter.h"
 
 static int block_size = 0;
 
@@ -99,21 +91,6 @@ static int Le(RedisModuleString **array, char *type, int i, int j) {
 }
 
 /**
- *  Swap Echanges two elements of array
- *
- * @param array The array to work on.
- * @param i The index of the first element
- * @param j The index of the second element
- */
-static void Swap(RedisModuleString **array, int i, int j) {
-    for (int k = 0; k < block_size; ++k) {
-        RedisModuleString *tmp = array[i + k];
-        array[i + k] = array[j + k];
-        array[j + k] = tmp;
-    }
-}
-
-/**
  *  Partition The function realizes the most important part of the quick sort
  *  algorithm.
  *
@@ -131,11 +108,11 @@ static int Partition(RedisModuleString **array, char *type,
     int store_idx = begin;
     for (int i = begin; i < last; i += block_size) {
         if (Le(array, type, i, last)) {
-            Swap(array, i, store_idx);
+            Swap(array, block_size, i, store_idx);
             store_idx += block_size;
         }
     }
-    Swap(array, store_idx, last);
+    Swap(array, block_size, store_idx, last);
     return store_idx;
 }
 
@@ -168,51 +145,16 @@ static void QuickSort(RedisModuleString **array, char *type,
 }
 
 /**
- *  Filter A multicolumn string filter function
- *
- * @param array The array to apply filter on.
- * @param size The array size
- * @param header Informations on each column, it contains the filter patterns
- * @param block_size The number of columns.
- *
- * @return The new size of the array. The real size of array is not modified
- *         to avoid reallocations, with this information, we know that the new
- *         array must be read in the range [0, return value).
- */
-static int Filter(RedisModuleString **array, int size,
-                   Header *header, int block_size) {
-    int retval = size - block_size;
-    int i, j;
-    for (j = 0; j < block_size - 1; ++j) {
-        if (header[j].search) {
-            size_t len;
-            const char *pattern = header[j].search;
-            i = 0;
-            while (i <= retval) {
-                const char *txt = RedisModule_StringPtrLen(array[i + j], &len);
-                if (fnmatch(pattern, txt, FNM_NOESCAPE | FNM_CASEFOLD | FNM_EXTMATCH)) {
-                    Swap(array, i, retval);
-                    retval -= block_size;
-                }
-                else
-                    i += block_size;
-            }
-        }
-    }
-    return retval + block_size;
-}
-
-/**
  *  SwapHeaders A function to exchange columns in the header
  *
  * @param a a header
  * @param b another header
  */
-static void SwapHeaders(Header *a, Header *b) {
-    Header tmp;
-    memcpy(&tmp, a, sizeof(Header));
-    memcpy(a, b, sizeof(Header));
-    memcpy(b, &tmp, sizeof(Header));
+static void SwapHeaders(TabularHeader *a, TabularHeader *b) {
+    TabularHeader tmp;
+    memcpy(&tmp, a, sizeof(TabularHeader));
+    memcpy(a, b, sizeof(TabularHeader));
+    memcpy(b, &tmp, sizeof(TabularHeader));
 }
 
 /**
@@ -226,13 +168,13 @@ static void SwapHeaders(Header *a, Header *b) {
  *
  * @return The array header
  */
-static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
+static TabularHeader *ParseArgv(RedisModuleString **argv, int argc, int *size,
                    RedisModuleString **key_store) {
     size_t len;
     int idx = 0;
-    Header *retval = RedisModule_Alloc(argc / 2 * sizeof (Header));
+    TabularHeader *retval = RedisModule_Alloc(argc / 2 * sizeof (TabularHeader));
     *size = 0;
-    Header *tmp = retval;
+    TabularHeader *tmp = retval;
     while (idx < argc) {
         const char *a = RedisModule_StringPtrLen(argv[idx], &len);
         if (strncasecmp(a, "STORE", len) == 0) {
@@ -272,6 +214,7 @@ static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
                 if (i == *size) {
                     (*size)++;
                     tmp->field = argv[idx];
+                    tmp->tool = TABULAR_NONE;
                     tmp->search = NULL;
                 }
                 /* In the case of SORT coming after FILTER, the sort order can
@@ -308,15 +251,16 @@ static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
             }
         }
         else if (strncasecmp(a, "FILTER", len) == 0) {
-            long long num;
+            long long count;
             idx++;
+            /* Let's get the filtered column's count */
             if (idx >= argc
-                || RedisModule_StringToLongLong(argv[idx], &num) == REDISMODULE_ERR) {
+                || RedisModule_StringToLongLong(argv[idx], &count) == REDISMODULE_ERR) {
                 RedisModule_Free(retval);
                 return NULL;
             }
             idx++;
-            while (num > 0 && idx < argc) {
+            while (count > 0 && idx < argc) {
                 tmp = retval;
                 int i = 0;
                 while (i < *size && RedisModule_StringCompare(argv[idx], tmp->field)) {
@@ -334,11 +278,25 @@ static Header *ParseArgv(RedisModuleString **argv, int argc, int *size,
                     return NULL;
                 }
                 a = RedisModule_StringPtrLen(argv[idx], &len);
+                if (strncasecmp(a, "MATCH", len) == 0)
+                    tmp->tool = TABULAR_MATCH;
+                else if (strncasecmp(a, "EQUAL", len) == 0)
+                    tmp->tool = TABULAR_EQUAL;
+                else {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
+                idx++;
+                if (idx >= argc) {
+                    RedisModule_Free(retval);
+                    return NULL;
+                }
+                a = RedisModule_StringPtrLen(argv[idx], &len);
                 tmp->search = a;
                 idx++;
-                num--;
+                count--;
             }
-            if (num > 0) {
+            if (count > 0) {
                 RedisModule_Free(retval);
                 return NULL;
             }
@@ -390,7 +348,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     }
 
     RedisModuleString *key_store = NULL;
-    Header *header = ParseArgv(argv + 4, argc - 4, &block_size, &key_store);
+    TabularHeader *header = ParseArgv(argv + 4, argc - 4, &block_size, &key_store);
     RedisModuleString *keystore_size_str = NULL;
     if (key_store) {
         size_t len;
@@ -403,7 +361,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 ctx,
                 "Err: The syntax is TABULAR.GET key ldown lup {STORE key}? {SORT {field {ALPHA|NUM|REVALPHA|REVNUM}}*}? {FILTER {field 'expr'}*}?");
     }
-    Header *lst;
+    TabularHeader *lst;
 
     /* A block contains each column asked in the command line + the field
      * key */

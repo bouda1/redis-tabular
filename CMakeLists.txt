@@ -51,8 +51,12 @@ if (COVERAGE)
 endif()
 
 add_library(redistabular SHARED
+    src/filter.c
+    src/filter.h
     src/module.c
     src/redismodule.h
+    src/tabular.c
+    src/tabular.h
 )
 # This to add -fPIC
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)

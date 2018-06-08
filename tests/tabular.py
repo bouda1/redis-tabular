@@ -31,25 +31,31 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
             self.cmd('tabular.get', 'test', 1, 30, 'store')
     def testParseArgvFilterNotFinished(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'filter')
+            self.cmd('tabular.get', 'test', 1, 30, 'FILTER')
     def testParseArgvFilterNotFinished1(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'filter', 2)
+            self.cmd('tabular.get', 'test', 1, 30, 'FILTER', 2)
     def testParseArgvFilterNotFinished2(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'filter', 1, 'name')
+            self.cmd('tabular.get', 'test', 1, 30, 'FILTER', 1, 'name')
+    def testParseArgvFilterNotFinished3(self):
+        with self.assertResponseError():
+            self.cmd('tabular.get', 'test', 1, 30, 'FILTER', 1, 'name', 'MATCH')
+    def testParseArgvFilterNotFinished4(self):
+        with self.assertResponseError():
+            self.cmd('tabular.get', 'test', 1, 30, 'FILTER', 1, 'name', '*a*')
     def testParseArgvSortNotFinished(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'sort')
+            self.cmd('tabular.get', 'test', 1, 30, 'SORT')
     def testParseArgvSortNotFinished1(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'sort', 2)
+            self.cmd('tabular.get', 'test', 1, 30, 'SORT', 2)
     def testParseArgvSortNotFinished2(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'sort', 1, 'name')
+            self.cmd('tabular.get', 'test', 1, 30, 'SORT', 1, 'name')
     def testParseArgvSortNotFinished3(self):
         with self.assertResponseError():
-            self.cmd('tabular.get', 'test', 1, 30, 'sort', 1, 'name', 'foo')
+            self.cmd('tabular.get', 'test', 1, 30, 'SORT', 1, 'name', 'foo')
     def testGetWithBadArg2(self):
         with self.assertResponseError():
             self.cmd('tabular.get', 'test', 'foo', 'bar')
@@ -71,13 +77,13 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 10):
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
         with self.assertResponseError():
-            self.assertOk(self.cmd('tabular.get', 's1', 1000, 0, 'store', 'services_sort', 'sort', 1, 'value', 'revalpha'))
+            self.assertOk(self.cmd('tabular.get', 's1', 1000, 0, 'store', 'services_sort', 'SORT', 1, 'value', 'revalpha'))
 
     def testGetWithASingleRevAlphaCol(self):
         for i in range(1, 1000):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        self.assertOk(self.cmd('tabular.get', 'test', 1000, 0, 'store', 'services_sort', 'sort', 1, 'value', 'revalpha'))
+        self.assertOk(self.cmd('tabular.get', 'test', 1000, 0, 'store', 'services_sort', 'SORT', 1, 'value', 'revalpha'))
         tab = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->value')
         for i in range(0, len(tab) - 1):
             self.assertTrue(tab[i] >= tab[i + 1]);
@@ -86,14 +92,14 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 30):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        tab = self.cmd('tabular.get', 'test', 1000, 1030, 'sort', 1, 'value', 'revalpha')
+        tab = self.cmd('tabular.get', 'test', 1000, 1030, 'SORT', 1, 'value', 'revalpha')
         self.assertTrue(len(tab) == 1 and tab[0] == 0)
 
     def testGetWindowWithoutStore(self):
         for i in range(1, 30):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        tab = self.cmd('tabular.get', 'test', 1, 1030, 'sort', 1, 'value', 'revalpha')
+        tab = self.cmd('tabular.get', 'test', 1, 1030, 'SORT', 1, 'value', 'revalpha')
         self.assertTrue(len(tab) == 29)
         self.assertTrue(tab[0] == 29)
 
@@ -101,7 +107,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 1000):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        self.assertOk(self.cmd('tabular.get', 'test', 0, 1000, 'store', 'services_sort', 'sort', 1, 'value', 'revnum'))
+        self.assertOk(self.cmd('tabular.get', 'test', 0, 1000, 'store', 'services_sort', 'SORT', 1, 'value', 'revnum'))
         tab = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->value')
         for i in range(0, len(tab) - 1):
             self.assertTrue(int(tab[i]) >= int(tab[i + 1]));
@@ -115,7 +121,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
                 self.cmd('tabular.get', 'test', 0, 1000,
                          'STORE', 'services_sort',
                          'SORT', 2, 'name', 'alpha', 'value', 'num',
-                         'FILTER', 1, 'name', 'Descr*1*', 'value', '*2*')
+                         'FILTER', 1, 'name', 'MATCH', 'Descr*1*', 'value', 'MATCH', '*2*')
 
     def testFilterWithTwoColsOrderNoImpact(self):
         for i in range(1, 1000):
@@ -124,22 +130,22 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
                     'name', 'Descr' + str(i))
         self.assertOk(self.cmd('tabular.get', 'test', 30, 60,
                                'STORE', 'services_sort',
-                               'FILTER', 2, 'name', 'Descr*1*', 'value', '*2*',
+                               'FILTER', 2, 'name', 'MATCH', 'Descr*1*', 'value', 'MATCH', '*2*',
                                'SORT', 2, 'name', 'alpha', 'value', 'num'))
         tab0 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name', 'get', '*->value')
         self.assertOk(self.cmd('tabular.get', 'test', 30, 60,
                                'STORE', 'services_sort',
-                               'FILTER', 2, 'value', '*2*', 'name', 'Descr*1*',
+                               'FILTER', 2, 'value', 'MATCH', '*2*', 'name', 'MATCH', 'Descr*1*',
                                'SORT', 2, 'name', 'alpha', 'value', 'num'))
         tab1 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name', 'get', '*->value')
         self.assertOk(self.cmd('tabular.get', 'test', 30, 60,
                                'STORE', 'services_sort',
                                'SORT', 2, 'name', 'alpha', 'value', 'num',
-                               'FILTER', 2, 'value', '*2*', 'name', 'Descr*1*'))
+                               'FILTER', 2, 'value', 'MATCH', '*2*', 'name', 'MATCH', 'Descr*1*'))
         tab2 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name', 'get', '*->value')
         self.assertOk(self.cmd('tabular.get', 'test', 30, 60,
                                'SORT', 2, 'name', 'alpha', 'value', 'num',
-                               'FILTER', 2, 'value', '*2*', 'name', 'Descr*1*',
+                               'FILTER', 2, 'value', 'MATCH', '*2*', 'name', 'MATCH', 'Descr*1*',
                                'STORE', 'services_sort'))
         tab3 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name', 'get', '*->value')
         for i in range(0, 62):
@@ -147,14 +153,27 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
             self.assertEqual(tab1[i], tab2[i])
             self.assertEqual(tab2[i], tab3[i])
 
+    def testFilterEqual(self):
+        for i in range(1, 1000):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 4),
+                    'name', 'Descr' + str(i))
+        self.assertOk(self.cmd('tabular.get', 'test', 0, 60,
+                               'STORE', 'services_sort',
+                               'FILTER', 2, 'name', 'MATCH', 'Descr*1*', 'value', 'EQUAL', '2',
+                               'SORT', 2, 'name', 'alpha', 'value', 'num'))
+        tab0 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->value')
+        for i in range(0, len(tab0)):
+            self.assertEqual(tab0[i], '2')
+
     def testCountOnWindow(self):
         for i in range(1, 151):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        self.cmd('tabular.get', 'test', 1, 1030, 'sort', 1, 'name', 'num', 'store', 'foo')
+        self.cmd('tabular.get', 'test', 1, 1030, 'SORT', 1, 'name', 'num', 'store', 'foo')
         tab1 = self.cmd('get', 'foo:size')
 
-        self.cmd('tabular.get', 'test', 100, 130, 'sort', 1, 'name', 'num', 'store', 'bar')
+        self.cmd('tabular.get', 'test', 100, 130, 'SORT', 1, 'name', 'num', 'store', 'bar')
         tab2 = self.cmd('get', 'bar:size')
         self.assertEqual(tab1, tab2)
 
@@ -162,7 +181,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(1, 30):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
-        tab = self.cmd('tabular.get', 'test', 1, 1030, 'sort', 1, 'name', 'num')
+        tab = self.cmd('tabular.get', 'test', 1, 1030, 'SORT', 1, 'name', 'num')
         self.assertTrue(len(tab) == 29)
         self.assertTrue(tab[0] == 29)
 
@@ -171,7 +190,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HSET', 's' + str(i), 'value', random.randint(0, 999))
         tab = self.cmd('tabular.get', 'test', 1, 1030,
-                       'sort', 1, 'name', 'alpha')
+                       'SORT', 1, 'name', 'alpha')
         self.assertTrue(len(tab) == 299)
         self.assertTrue(tab[0] == 299)
 
