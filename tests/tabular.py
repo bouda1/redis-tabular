@@ -166,6 +166,23 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         for i in range(0, len(tab0)):
             self.assertEqual(tab0[i], '2')
 
+    def testFilterIn(self):
+        for i in range(1, 1001):
+            name = 'Descr' + str(i)
+            if i % 2 != 0:
+                self.cmd('SADD', 'bag', name)
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 4),
+                    'name', name)
+        self.assertOk(self.cmd('TABULAR.GET', 'test', 0, 60,
+                               'STORE', 'services_sort',
+                               'FILTER', 1, 'name', 'IN', 'bag'))
+        size = self.cmd('get', 'services_sort:size')
+        self.assertEqual(size, '500')
+        tab0 = self.cmd('sort', 'services_sort', 'by', 'nosort', 'get', '*->name')
+        for i in range(0, len(tab0)):
+            self.assertEqual(self.cmd('sismember', 'bag', tab0[i]), 1)
+
     def testCountOnWindow(self):
         for i in range(1, 151):
             self.cmd('SADD', 'test', 's' + str(i))

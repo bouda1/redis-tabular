@@ -93,8 +93,9 @@ OK
 ```
 
 There is also a possibility to filter rows:
-* with *wildcards* with the `MATCH` keyword
-* with strict equality with the `EQUAL` keyword
+* with *wildcards* thanks to the `MATCH` keyword
+* with strict equality thanks to the `EQUAL` keyword
+* with field in a set thanks to the `IN` keyword
 
 For example, with our example, we can keep only lines matching a pattern:
 ```
@@ -106,7 +107,14 @@ A query of the form `TABULAR.GET test 0 10 FILTER 1 descr EQUAL foo` keeps
 only rows with `descr` containing exactly *foo*. The returned result contains
 only rows from index 0 to 10, that is the 11 first rows.
 
-It is possible to combine all of them. Operations are made in the following order:
+And now, if we have a set `bag` containing several strings, it is possible to
+filter rows having one field contained by `bag`. The syntax is the following:
+```
+> tabular.get test 0 10 filter 1 descr IN bag
+1) "s6"
+```
+
+Operations are made in the following order:
 1. FILTER
 2. SORT
 3. STORE

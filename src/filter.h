@@ -35,7 +35,7 @@
 #include "redismodule.h"
 #include "tabular.h"
 
-int Filter(RedisModuleString **array, int size,
+int Filter(RedisModuleCtx *ctx, RedisModuleString **array, int size,
            TabularHeader *header, int block_size);
 
 #endif /*__FILTER_H__*/

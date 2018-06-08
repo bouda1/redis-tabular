@@ -282,6 +282,8 @@ static TabularHeader *ParseArgv(RedisModuleString **argv, int argc, int *size,
                     tmp->tool = TABULAR_MATCH;
                 else if (strncasecmp(a, "EQUAL", len) == 0)
                     tmp->tool = TABULAR_EQUAL;
+                else if (strncasecmp(a, "IN", len) == 0)
+                    tmp->tool = TABULAR_IN;
                 else {
                     RedisModule_Free(retval);
                     return NULL;
@@ -415,7 +417,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
             RedisModule_CloseKey(key);
         }
         orig_size = size;
-        size = Filter(array, size, header, block_size);
+        size = Filter(ctx, array, size, header, block_size);
     }
 
     key_count = size / block_size;

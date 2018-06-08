@@ -46,7 +46,7 @@
  *         to avoid reallocations, with this information, we know that the new
  *         array must be read in the range [0, return value).
  */
-int Filter(RedisModuleString **array, int size,
+int Filter(RedisModuleCtx *ctx, RedisModuleString **array, int size,
            TabularHeader *header, int block_size) {
     int retval = size - block_size;
     int i, j;
@@ -70,6 +70,21 @@ int Filter(RedisModuleString **array, int size,
                 while (i <= retval) {
                     const char *txt = RedisModule_StringPtrLen(array[i + j], &len);
                     if (strncmp(header[j].search, txt, len)) {
+                        Swap(array, block_size, i, retval);
+                        retval -= block_size;
+                    }
+                    else
+                        i += block_size;
+                }
+                break;
+            case TABULAR_IN:
+                i = 0;
+                while (i <= retval) {
+                    RedisModuleCallReply *reply = RedisModule_Call(
+                            ctx, "SISMEMBER", "cs", header[j].search, array[i + j]);
+                    int v = RedisModule_CallReplyInteger(reply);
+                    RedisModule_FreeCallReply(reply);
+                    if (!v) {
                         Swap(array, block_size, i, retval);
                         retval -= block_size;
                     }

@@ -38,6 +38,7 @@ enum _TabularTool {
   TABULAR_NONE,
   TABULAR_MATCH,
   TABULAR_EQUAL,
+  TABULAR_IN,
 };
 
 typedef enum _TabularTool TabularTool;
