@@ -34,6 +34,12 @@
 */
 #include "redismodule.h"
 
+enum _TabularFilter {
+  TABULAR_SORT = 1 << 0,
+  TABULAR_STORE = 1 << 1,
+  TABULAR_FILTER = 1 << 2,
+};
+
 enum _TabularTool {
   TABULAR_NONE,
   TABULAR_MATCH,
@@ -53,5 +59,7 @@ struct _TabularHeader {
 typedef struct _TabularHeader TabularHeader;
 
 void Swap(RedisModuleString **array, int block_size, int i, int j);
+TabularHeader *ParseArgv(RedisModuleString **argv, int argc, int *size,
+                         RedisModuleString **key_store, int flag);
 
 #endif /*__TABULAR_H__*/

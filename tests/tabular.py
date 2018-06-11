@@ -211,6 +211,30 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         self.assertTrue(len(tab) == 299)
         self.assertTrue(tab[0] == 299)
 
+    def testCountEmptySet(self):
+        tab = self.cmd('tabular.count', 'test', 'FILTER', 1, 'value', 'MATCH', '1')
+        self.assertEqual(tab, None)
+
+    def testCountBadArity(self):
+        with self.assertResponseError():
+            self.cmd('tabular.count', 'test')
+
+    def testCountBadSet(self):
+        self.cmd('set', 'test', 'foobar')
+        with self.assertResponseError():
+            self.cmd('tabular.count', 'test', 'filter', 1, 'test', 'EQUAL', '1')
+
+    def testCountWithSort(self):
+        for i in range(1, 300):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'value', i % 2)
+        with self.assertResponseError():
+            self.cmd('tabular.count', 'test', 'filter', 1, 'value', 'EQUAL', '1', 'SORT', 1, 'value', 'NUM')
+
+    def testCountEmptySetStore(self):
+        tab = self.cmd('tabular.count', 'test', 'FILTER', 1, 'value', 'MATCH', '1', 'STORE', 'test_count')
+        self.assertEqual(tab, None)
+
     def testCountSimple(self):
         for i in range(1, 300):
             self.cmd('SADD', 'test', 's' + str(i))
