@@ -53,6 +53,8 @@ endif()
 add_library(redistabular SHARED
     src/filter.c
     src/filter.h
+    src/sort.c
+    src/sort.h
     src/module.c
     src/redismodule.h
     src/tabular.c
