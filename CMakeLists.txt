@@ -51,12 +51,14 @@ if (COVERAGE)
 endif()
 
 add_library(redistabular SHARED
+    src/count.c
+    src/count.h
     src/filter.c
     src/filter.h
-    src/sort.c
-    src/sort.h
     src/module.c
     src/redismodule.h
+    src/sort.c
+    src/sort.h
     src/tabular.c
     src/tabular.h
 )

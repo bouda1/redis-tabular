@@ -33,6 +33,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "count.h"
 #include "filter.h"
 #include "sort.h"
 #include "tabular.h"
@@ -205,6 +206,34 @@ static TabularHeader *ParseArgv(RedisModuleString **argv, int argc, int *size,
     return retval;
 }
 
+static RedisModuleString **GetArray(RedisModuleCtx *ctx, int size, int block_size, TabularHeader *header, RedisModuleString *set) {
+    size_t i, j;
+    RedisModuleString **array = RedisModule_Alloc(size * sizeof(RedisModuleString *));
+
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "SMEMBERS", "s", set);
+    for (i = block_size - 1, j = 0; i < size; i += block_size, ++j) {
+        size_t len;
+        const char *str = RedisModule_CallReplyStringPtr(
+                RedisModule_CallReplyArrayElement(reply, j), &len);
+        array[i] = RedisModule_CreateString(ctx, str, len);
+    }
+    RedisModule_FreeCallReply(reply);
+
+    for (j = 0; j < size; j += block_size) {
+        RedisModuleKey *key = RedisModule_OpenKey(
+                ctx, array[j + block_size - 1], REDISMODULE_READ);
+        TabularHeader *lst;
+        for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
+            size_t len;
+            RedisModuleString *value;
+            RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
+            array[j + i] = value;
+        }
+        RedisModule_CloseKey(key);
+    }
+    return array;
+}
+
 /**
  *  An implementation of a sort function
  *  The first argument is a Redis set to sort
@@ -257,7 +286,6 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
                 ctx,
                 "Err: The syntax is TABULAR.GET key ldown lup {STORE key}? {SORT {field {ALPHA|NUM|REVALPHA|REVNUM}}*}? {FILTER {field 'expr'}*}?");
     }
-    TabularHeader *lst;
 
     /* A block contains each column asked in the command line + the field
      * key */
@@ -276,6 +304,10 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     RedisModuleString **array = NULL;
     char type[block_size];
     type[block_size - 1] = 'a';
+    TabularHeader *lst;
+    int i;
+    for (lst = header, i = 0; i < block_size - 1; lst++, i++)
+        type[i] = lst->type;
 
     int ldown = first * block_size;
 
@@ -285,31 +317,7 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         size = 0;
 
     if (size > 0) {
-        array = RedisModule_Alloc(size * sizeof(char *));
-
-        size_t i, j;
-
-        reply = RedisModule_Call(ctx, "SMEMBERS", "s", set);
-        for (i = block_size - 1, j = 0; i < size; i += block_size, ++j) {
-            size_t len;
-            const char *str = RedisModule_CallReplyStringPtr(
-                    RedisModule_CallReplyArrayElement(reply, j), &len);
-            array[i] = RedisModule_CreateString(ctx, str, len);
-        }
-        RedisModule_FreeCallReply(reply);
-
-        for (j = 0; j < size; j += block_size) {
-            RedisModuleKey *key = RedisModule_OpenKey(
-                    ctx, array[j + block_size - 1], REDISMODULE_READ);
-            for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
-                type[i] = lst->type;
-                size_t len;
-                RedisModuleString *value;
-                RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
-                array[j + i] = value;
-            }
-            RedisModule_CloseKey(key);
-        }
+        array = GetArray(ctx, size, block_size, header, set);
         orig_size = size;
         size = Filter(ctx, array, size, header, block_size);
     }
@@ -371,6 +379,50 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     return REDISMODULE_OK;
 }
 
+static int TabularCount_RedisCommand(RedisModuleCtx *ctx,
+                                     RedisModuleString **argv,
+                                     int argc) {
+    long long key_count = 0;
+    int block_size = 0;
+
+    if (argc < 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    RedisModuleString *set = argv[1];
+
+    RedisModuleString *key_store = NULL;
+    TabularHeader *header = ParseArgv(argv + 2, argc - 2, &block_size, &key_store);
+
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "SCARD", "s", set);
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER)
+        return RedisModule_ReplyWithError(
+                ctx,
+                "Err: Unable to get the set card");
+    ++block_size;
+    int size = RedisModule_CallReplyInteger(reply) * block_size;
+    RedisModule_FreeCallReply(reply);
+
+    RedisModuleString **array = GetArray(ctx, size, block_size, header, set);
+
+    CountList *cnt = Count(ctx, array, size, header, block_size);
+
+    if (key_store == NULL)
+        CountReply(ctx, cnt);
+    else
+        CountReplyStore(ctx, cnt, key_store);
+
+    for (size_t i = 0; i < size; ++i) {
+        if (array[i])
+            RedisModule_FreeString(ctx, array[i]);
+    }
+    RedisModule_Free(array);
+    RedisModule_Free(header);
+    FreeCountList(cnt);
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (RedisModule_Init(ctx, "tabular", 1, REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
@@ -379,5 +431,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         TabularGet_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "tabular.count",
+        TabularCount_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
     return REDISMODULE_OK;
 }

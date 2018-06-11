@@ -211,5 +211,47 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         self.assertTrue(len(tab) == 299)
         self.assertTrue(tab[0] == 299)
 
+    def testCountSimple(self):
+        for i in range(1, 300):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'value', i % 2)
+        tab = self.cmd('tabular.count', 'test', 'FILTER', 1, 'value', 'MATCH', '1')
+        self.assertEqual(tab[0], 'value')
+        self.assertEqual(tab[1], '1')
+        self.assertEqual(tab[2], 'count')
+        self.assertEqual(tab[3], 150L)
+        self.assertEqual(tab[4], 'children')
+        self.assertEqual(tab[5], None)
+
+    def testCountMulti(self):
+        for i in range(1, 300):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'state', i % 4)
+            self.cmd('HSET', 's' + str(i), 'value', i % 2)
+        tab = self.cmd('tabular.count', 'test', 'FILTER', 2, 'state', 'MATCH', '[0-3]', 'value', 'EQUAL', '1')
+
+    def testCountSimpleStore(self):
+        for i in range(1, 300):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'value', i % 2)
+        tab = self.cmd('tabular.count', 'test', 'FILTER', 1, 'value', 'MATCH', '1', 'STORE', 'simple_count')
+        tab = self.cmd('get', 'simple_count:count:1')
+        self.assertEqual(tab, '150')
+
+    def testCountMultiStore(self):
+        for i in range(1, 301):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HSET', 's' + str(i), 'state', i % 4)
+            self.cmd('HSET', 's' + str(i), 'value', i % 2)
+            self.cmd('tabular.count', 'test', 'FILTER', 2, 'state', 'MATCH', '[0-3]', 'value', 'EQUAL', '1', 'STORE', 'multi_test')
+        tab = self.cmd('mget', 'multi_test:count:0', 'multi_test:count:1', 'multi_test:count:2', 'multi_test:count:3')
+        self.assertEqual(tab[0], '75')
+        self.assertEqual(tab[1], '75')
+        self.assertEqual(tab[2], '75')
+        self.assertEqual(tab[3], '75')
+        tab = self.cmd('mget', 'multi_test:count:1:1', 'multi_test:count:3:1')
+        self.assertEqual(tab[0], '75')
+        self.assertEqual(tab[1], '75')
+
 if __name__ == '__main__':
     unittest.main()
