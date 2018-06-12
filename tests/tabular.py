@@ -277,5 +277,19 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         self.assertEqual(tab[0], '75')
         self.assertEqual(tab[1], '75')
 
+    def testCountMultiStoreWithStrings(self):
+        self.cmd('sadd', 'rows', 'r:1', 'r:2', 'r:3', 'r:4',  'r:5')
+        self.cmd('hmset', 'r:1', 'status', '0', 'name', 'Mizar', 'location', 'Tours')
+        self.cmd('hmset', 'r:2', 'status', '0', 'name', 'Altair', 'location', 'Lyon')
+        self.cmd('hmset', 'r:3', 'status', '1', 'name', 'Arctarus', 'location', 'Agen')
+        self.cmd('hmset', 'r:4', 'status', '3', 'name', 'Vega', 'location', 'Bordeaux')
+        self.cmd('hmset', 'r:5', 'status', '4', 'name', 'Vega', 'location', 'Versailles')
+        self.cmd('tabular.count', 'rows', 'filter', '2', 'status', 'MATCH', '[0-4]', 'name', 'EQUAL', 'Vega', 'STORE', 'test')
+        tab = self.cmd('keys', 'test:count:*')
+        self.assertTrue('test:count:3:V' not in tab)
+        self.assertTrue('test:count:4:V' not in tab)
+        self.assertTrue('test:count:3:Vega' in tab)
+        self.assertTrue('test:count:4:Vega' in tab)
+
 if __name__ == '__main__':
     unittest.main()

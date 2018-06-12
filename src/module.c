@@ -56,7 +56,6 @@ static RedisModuleString **GetArray(RedisModuleCtx *ctx, int size, int block_siz
                 ctx, array[j + block_size - 1], REDISMODULE_READ);
         TabularHeader *lst;
         for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
-            size_t len;
             RedisModuleString *value;
             RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
             array[j + i] = value;
@@ -215,12 +214,10 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
 static int TabularCount_RedisCommand(RedisModuleCtx *ctx,
                                      RedisModuleString **argv,
                                      int argc) {
-    long long key_count = 0;
     int block_size = 0;
 
-    if (argc < 3) {
+    if (argc < 3)
         return RedisModule_WrongArity(ctx);
-    }
 
     RedisModuleString *set = argv[1];
 

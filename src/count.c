@@ -35,11 +35,11 @@
 #include "count.h"
 #include "tabular.h"
 
-static CountList *FillList(CountList *lst, const char *content) {
+static CountList *FillList(CountList *lst, RedisModuleString *content) {
     if (lst->content == NULL)
         lst->content = content;
     else
-        while (strcmp(lst->content, content) != 0) {
+        while (RedisModule_StringCompare(lst->content, content) != 0) {
             if (lst->next) {
                 lst = lst->next;
             }
@@ -77,12 +77,12 @@ CountList *Count(RedisModuleCtx *ctx, RedisModuleString **array, int size,
                 case TABULAR_MATCH:
                     txt = RedisModule_StringPtrLen(array[i + j], &len);
                     if (fnmatch(header[j].search, txt, FNM_NOESCAPE | FNM_CASEFOLD | FNM_EXTMATCH) == 0)
-                        lst = FillList(lst, txt);
+                        lst = FillList(lst, array[i + j]);
                     break;
                 case TABULAR_EQUAL:
                     txt = RedisModule_StringPtrLen(array[i + j], &len);
                     if (strncmp(header[j].search, txt, len) == 0)
-                        lst = FillList(lst, txt);
+                        lst = FillList(lst, array[i + j]);
                     break;
                 default:
                     cont = 0;
@@ -102,7 +102,7 @@ void CountReply(RedisModuleCtx *ctx, CountList *cnt) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     for (CountList *lst = cnt; lst; lst = lst->next) {
         RedisModule_ReplyWithStringBuffer(ctx, "value", 5);
-        RedisModule_ReplyWithStringBuffer(ctx, lst->content, strlen(lst->content));
+        RedisModule_ReplyWithString(ctx, lst->content);
         RedisModule_ReplyWithStringBuffer(ctx, "count", 5);
         RedisModule_ReplyWithLongLong(ctx, lst->count);
         RedisModule_ReplyWithStringBuffer(ctx, "children", 8);
@@ -127,9 +127,11 @@ void CountReplyStore(RedisModuleCtx *ctx, CountList *cnt, RedisModuleString *sto
         RedisModule_StringAppendBuffer(ctx, tmp, ":", 1);
         RedisModule_StringAppendBuffer(ctx, tmp, "count", 5);
         for (CountList *c = lst; c && c->content; c = c->children) {
+            size_t len;
+            const char *str = RedisModule_StringPtrLen(c->content, &len);
             RedisModule_StringAppendBuffer(ctx, tmp, ":", 1);
             RedisModule_StringAppendBuffer(
-                    ctx, tmp, c->content, strlen(lst->content));
+                    ctx, tmp, str, len);
             RedisModuleKey *key = RedisModule_OpenKey(ctx, tmp, REDISMODULE_WRITE);
             RedisModuleString *val = RedisModule_CreateStringFromLongLong(
                     ctx, lst->count);

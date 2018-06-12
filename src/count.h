@@ -37,7 +37,7 @@
 
 typedef struct _CountList CountList;
 struct _CountList {
-    const char *content;
+    RedisModuleString *content;
     int count;
     CountList *next;
     CountList *children;
