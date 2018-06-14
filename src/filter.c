@@ -80,10 +80,17 @@ int Filter(RedisModuleCtx *ctx, RedisModuleString **array, int size,
             case TABULAR_IN:
                 i = 0;
                 while (i <= retval) {
-                    RedisModuleCallReply *reply = RedisModule_Call(
-                            ctx, "SISMEMBER", "cs", header[j].search, array[i + j]);
-                    int v = RedisModule_CallReplyInteger(reply);
-                    RedisModule_FreeCallReply(reply);
+                    int v;
+                    if (array[i + j]) {
+                        RedisModuleCallReply *reply = RedisModule_Call(
+                                ctx, "SISMEMBER", "cs",
+                                header[j].search, array[i + j]);
+                        v = RedisModule_CallReplyInteger(reply);
+                        RedisModule_FreeCallReply(reply);
+                    }
+                    else
+                        v = 0;
+
                     if (!v) {
                         Swap(array, block_size, i, retval);
                         retval -= block_size;
