@@ -138,8 +138,12 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     type[block_size - 1] = 'a';
     TabularHeader *lst;
     int i;
-    for (lst = header, i = 0; i < block_size - 1; lst++, i++)
+    int should_sort = 0;
+    for (lst = header, i = 0; i < block_size - 1; lst++, i++) {
         type[i] = lst->type;
+        if (type[i])
+            should_sort = 1;
+    }
 
     int ldown = first * block_size;
 
@@ -166,10 +170,12 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
     if (lup < ldown)
         lup = ldown;
 
-    QuickSort(
-            array, type, block_size,
-            0, size - block_size,
-            ldown, lup);
+    if (should_sort) {
+        QuickSort(
+                array, type, block_size,
+                0, size - block_size,
+                ldown, lup);
+    }
 
     if (key_store == NULL) {
         if (size > 0) {
@@ -200,6 +206,95 @@ static int TabularGet_RedisCommand(RedisModuleCtx *ctx,
         RedisModule_FreeCallReply(reply);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
         RedisModule_FreeString(ctx, keystore_size_str);
+    }
+
+    for (size_t i = 0; i < orig_size; ++i) {
+        if (array[i])
+            RedisModule_FreeString(ctx, array[i]);
+    }
+    RedisModule_Free(array);
+    RedisModule_Free(header);
+    return REDISMODULE_OK;
+}
+
+static int TabularFilter_RedisCommand(RedisModuleCtx *ctx,
+                                      RedisModuleString **argv,
+                                      int argc) {
+    int block_size = 0;
+
+    if (argc < 3)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleString *set = argv[1];
+
+    RedisModuleString *key_store = NULL;
+    TabularHeader *header = ParseArgv(argv + 2, argc - 2, &block_size, &key_store,
+            TABULAR_STORE | TABULAR_FILTER);
+
+    if (!header) {
+        return RedisModule_ReplyWithError(
+                ctx,
+                "Err: The syntax is TABULAR.FILTER key {STORE key}? {FILTER {field {MATCH|EQUAL|IN} 'expr'}*}?");
+    }
+
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "SCARD", "s", set);
+
+    if (RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER)
+        return RedisModule_ReplyWithError(
+                ctx,
+                "Err: Unable to get the set card");
+    ++block_size;
+    int size = RedisModule_CallReplyInteger(reply) * block_size;
+    RedisModule_FreeCallReply(reply);
+
+    RedisModuleString **array = GetArray(ctx, size, block_size, header, set);
+
+    int orig_size = size;
+    if (size > 0)
+        size = Filter(ctx, array, size, header, block_size);
+
+    if (key_store == NULL) {
+        if (size > 0) {
+            RedisModule_ReplyWithArray(ctx, size / block_size);
+            for (size_t i = 0; i < size; i += block_size)
+                RedisModule_ReplyWithString(ctx, array[i + block_size - 1]);
+        }
+        else
+            RedisModule_ReplyWithArray(ctx, 0);
+    }
+    else {
+        reply = RedisModule_Call(ctx, "UNLINK", "s", key_store);
+        RedisModule_FreeCallReply(reply);
+        if (size > 0) {
+            int bs = block_size * 16;
+            size_t i = 0;
+            for (i = 0; i + bs <= size; i += bs) {
+                reply = RedisModule_Call(ctx, "SADD", "sssssssssssssssss", key_store,
+                                         array[i + block_size - 1],
+                                         array[i + 2 * block_size - 1],
+                                         array[i + 3 * block_size - 1],
+                                         array[i + 4 * block_size - 1],
+                                         array[i + 5 * block_size - 1],
+                                         array[i + 6 * block_size - 1],
+                                         array[i + 7 * block_size - 1],
+                                         array[i + 8 * block_size - 1],
+                                         array[i + 9 * block_size - 1],
+                                         array[i + 10 * block_size - 1],
+                                         array[i + 11 * block_size - 1],
+                                         array[i + 12 * block_size - 1],
+                                         array[i + 13 * block_size - 1],
+                                         array[i + 14 * block_size - 1],
+                                         array[i + 15 * block_size - 1],
+                                         array[i + 16 * block_size - 1]);
+                RedisModule_FreeCallReply(reply);
+            }
+            for (; i < size; i += block_size) {
+                reply = RedisModule_Call(ctx, "SADD", "ss", key_store,
+                                         array[i + block_size - 1]);
+                RedisModule_FreeCallReply(reply);
+            }
+        }
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
 
     for (size_t i = 0; i < orig_size; ++i) {
@@ -266,6 +361,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "tabular.get",
         TabularGet_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "tabular.filter",
+        TabularFilter_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "tabular.count",

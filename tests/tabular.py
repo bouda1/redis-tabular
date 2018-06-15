@@ -153,7 +153,7 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
             self.assertEqual(tab1[i], tab2[i])
             self.assertEqual(tab2[i], tab3[i])
 
-    def testFilterEqual(self):
+    def testGetFilterEqual(self):
         for i in range(1, 1000):
             self.cmd('SADD', 'test', 's' + str(i))
             self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 4),
@@ -290,6 +290,38 @@ class TestRedisTabular(ModuleTestCase('../build/redistabular.so')):
         self.assertTrue('test:count:4:V' not in tab)
         self.assertTrue('test:count:3:Vega' in tab)
         self.assertTrue('test:count:4:Vega' in tab)
+
+    def testFilterEqual(self):
+        for i in range(1, 200):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 4),
+                    'name', 'Descr' + str(i))
+        self.assertOk(self.cmd('tabular.filter', 'test',
+                               'STORE', 'test_filter',
+                               'FILTER', 2, 'name', 'MATCH', 'Descr*1*', 'value', 'EQUAL', '2'))
+        tab0 = self.cmd('sort', 'test_filter', 'by', 'nosort', 'get', '*->value')
+        tab1 = self.cmd('sort', 'test', 'by', 'nosort', 'get', '*->value', 'get', '*->name')
+        nb = 0
+        prog = re.compile('Descr.*1.*')
+        for i in range(0, len(tab1), 2):
+            if tab1[i] == '2' and prog.match(tab1[i + 1]):
+                nb += 1
+
+        for i in range(0, len(tab0)):
+            self.assertEqual(tab0[i], '2')
+        self.assertEqual(len(tab0), nb)
+
+    def testFilterEqualNoStore(self):
+        for i in range(1, 200):
+            self.cmd('SADD', 'test', 's' + str(i))
+            self.cmd('HMSET', 's' + str(i), 'value', random.randint(0, 4),
+                    'name', 'Descr' + str(i))
+        tab = self.cmd('tabular.filter', 'test',
+                               'FILTER', 2, 'name', 'MATCH', 'Descr*1*', 'value', 'EQUAL', '2')
+        prog = re.compile(r'Descr.*1.*')
+        for i in range(0, len(tab)):
+            s = self.cmd('hmget', tab[i], 'value', 'name')
+            self.assertTrue(s[0] == '2' and prog.match(s[1]))
 
 if __name__ == '__main__':
     unittest.main()
