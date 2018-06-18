@@ -54,13 +54,15 @@ static RedisModuleString **GetArray(RedisModuleCtx *ctx, int size, int block_siz
     for (j = 0; j < size; j += block_size) {
         RedisModuleKey *key = RedisModule_OpenKey(
                 ctx, array[j + block_size - 1], REDISMODULE_READ);
-        TabularHeader *lst;
-        for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
-            RedisModuleString *value;
-            RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
-            array[j + i] = value;
+        if (key) {
+            TabularHeader *lst;
+            for (lst = header, i = 0; i < block_size - 1; lst++, ++i) {
+                RedisModuleString *value;
+                RedisModule_HashGet(key, REDISMODULE_HASH_NONE, lst->field, &value, NULL);
+                array[j + i] = value;
+            }
+            RedisModule_CloseKey(key);
         }
-        RedisModule_CloseKey(key);
     }
     return array;
 }
