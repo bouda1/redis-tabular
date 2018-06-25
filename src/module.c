@@ -63,6 +63,9 @@ static RedisModuleString **GetArray(RedisModuleCtx *ctx, int size, int block_siz
             }
             RedisModule_CloseKey(key);
         }
+        else
+            for (i = 0; i < block_size - 1; ++i)
+                array[j + i] = NULL;
     }
     return array;
 }
