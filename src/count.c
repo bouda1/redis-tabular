@@ -33,7 +33,6 @@
 #include <fnmatch.h>
 #include <string.h>
 #include "count.h"
-#include "tabular.h"
 
 static CountList *FillList(CountList *lst, RedisModuleString *content) {
     if (lst->content == NULL)
